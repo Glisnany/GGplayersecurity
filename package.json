@@ -1,6 +1,16 @@
 {
-    "name": "GG Player Web",
-    "version": "1.0",
-    "author": "GG Player",
-    "description": "Web version of GG Player"
+  "name": "gg-stream-proxy",
+  "version": "1.0.0",
+  "description": "Proxy Reverso HTTPS para GG Player",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
