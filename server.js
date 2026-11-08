@@ -1,16 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { Readable } = require('stream');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
-// Serve os arquivos da raiz (index.html, css, imagens)
+// Desativa cache local de respostas para evitar loop de pedaços de vídeo
+app.disable('etag');
+
+// Serve arquivos estáticos (HTML, CSS, imagens)
 app.use(express.static(__dirname));
 
-// Rota de proxy para converter HTTP em HTTPS nos vídeos e APIs
+// Rota de proxy para converter HTTP em HTTPS nos fluxos e APIs
 app.get('/proxy', async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send('URL ausente.');
@@ -41,7 +45,7 @@ app.get('/proxy', async (req, res) => {
         const finalUrl = upstreamRes.url || targetUrl;
         const contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
 
-        // Processamento HLS (.m3u8)
+        // 1. Processamento de Playlist HLS (.m3u8)
         if (contentType.includes('mpegurl') || targetUrl.includes('.m3u8') || finalUrl.includes('.m3u8')) {
             const manifest = await upstreamRes.text();
             const baseUrl = new URL(finalUrl);
@@ -64,10 +68,11 @@ app.get('/proxy', async (req, res) => {
             }).join('\n');
 
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Cache-Control', 'no-cache, no-store');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             return res.send(modified);
         }
 
+        // 2. Segmentos de Vídeo (.ts / .mp4 / áudio) - STREAMING CONTÍNUO
         ['content-type', 'content-length', 'content-range', 'accept-ranges'].forEach(h => {
             const val = upstreamRes.headers.get(h);
             if (val) res.setHeader(h, val);
@@ -75,17 +80,26 @@ app.get('/proxy', async (req, res) => {
 
         if (targetUrl.includes('.ts') || finalUrl.includes('.ts')) {
             res.setHeader('Content-Type', 'video/mp2t');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
         }
 
-        const arrayBuffer = await upstreamRes.arrayBuffer();
-        res.send(Buffer.from(arrayBuffer));
+        // Transmissão direta por pipe sem guardar na memória
+        if (upstreamRes.body) {
+            const nodeStream = Readable.fromWeb(upstreamRes.body);
+            nodeStream.pipe(res);
+        } else {
+            const arrayBuffer = await upstreamRes.arrayBuffer();
+            res.send(Buffer.from(arrayBuffer));
+        }
 
     } catch (err) {
-        res.status(502).json({ error: 'Falha no upstream', message: err.message });
+        if (!res.headersSent) {
+            res.status(502).json({ error: 'Falha no upstream', message: err.message });
+        }
     }
 });
 
-// Entrega o index.html na raiz
+// Entrega index.html
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
