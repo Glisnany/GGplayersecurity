@@ -510,6 +510,7 @@
             return formatMediaUrl(url);
         }
 
+        // MOTOR REPRODUTOR COM TRATAMENTO ANTI-ENGASGO E CONTROLE DE BUFFER
         function loadVideo(videoEl, url, isHls, hlsObjKey) {
             if (appState[hlsObjKey]) {
                 appState[hlsObjKey].destroy();
@@ -520,8 +521,22 @@
 
             if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
                 const hls = new Hls({
-                    maxBufferLength: 30,
                     enableWorker: true,
+                    lowLatencyMode: false,          // Estabilidade sobre baixa latência extrema
+                    backBufferLength: 0,             // Limpa imediatamente buffer anterior para não voltar no tempo
+                    maxBufferLength: 20,             // 20s de buffer estável
+                    maxMaxBufferLength: 40,
+                    maxBufferSize: 30 * 1000 * 1000, // 30 MB limite
+                    maxBufferHole: 0.8,              // Pula descontinuidades de até 0.8s sem travar
+                    highBufferWatchdogPeriod: 2,
+                    nudgeOffset: 0.2,
+                    nudgeMaxRetry: 10,
+                    manifestLoadingTimeOut: 15000,
+                    manifestLoadingMaxRetry: 4,
+                    levelLoadingTimeOut: 15000,
+                    levelLoadingMaxRetry: 4,
+                    fragLoadingTimeOut: 20000,
+                    fragLoadingMaxRetry: 6,
                     xhrSetup: function(xhr) {
                         xhr.withCredentials = false;
                     }
@@ -537,7 +552,16 @@
                     });
                 });
 
+                // Detecção e recuperação ativa de lacunas e congelamento
                 hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+                        // Se o buffer engasgar em frame ausente, empurra levemente a agulha
+                        if (videoEl.buffered.length > 0) {
+                            videoEl.currentTime += 0.2;
+                            videoEl.play().catch(() => {});
+                        }
+                    }
+
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
@@ -584,13 +608,11 @@
             }
         }
 
-        // DISPARA TELA CHEIA NATIVA REAL (Esconde barras de navegação do dispositivo)
         function triggerNativeFullscreen(element) {
             const req = element.requestFullscreen || element.webkitRequestFullscreen || element.mozRequestFullScreen || element.msRequestFullscreen;
             if (req) {
                 req.call(element).catch(() => {});
             } else if (DOM.mainPlayer.webkitEnterFullscreen) {
-                // Suporte específico para iOS Safari Mobile
                 DOM.mainPlayer.webkitEnterFullscreen();
             }
         }
@@ -611,7 +633,6 @@
             const url = getStreamUrl(item, extension);
             loadVideo(DOM.mainPlayer, url, item.type === 'live', 'hlsMain');
 
-            // Dispara tela cheia nativa do aparelho para esconder a barra de endereço
             setTimeout(() => {
                 triggerNativeFullscreen(DOM.playerScreen);
             }, 100);
