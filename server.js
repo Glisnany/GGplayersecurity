@@ -1,16 +1,19 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
+// Serve os arquivos do site (HTML, CSS, imagens) diretamente pela raiz HTTPS
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Rota de proxy para os vídeos e APIs
 app.get('/proxy', async (req, res) => {
     const targetUrl = req.query.url;
-    if (!targetUrl) {
-        return res.status(400).send('URL ausente.');
-    }
+    if (!targetUrl) return res.status(400).send('URL ausente.');
 
     try {
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
@@ -38,7 +41,6 @@ app.get('/proxy', async (req, res) => {
         const finalUrl = upstreamRes.url || targetUrl;
         const contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
 
-        // Tratamento de playlist HLS (.m3u8)
         if (contentType.includes('mpegurl') || targetUrl.includes('.m3u8') || finalUrl.includes('.m3u8')) {
             const manifest = await upstreamRes.text();
             const baseUrl = new URL(finalUrl);
@@ -65,17 +67,15 @@ app.get('/proxy', async (req, res) => {
             return res.send(modified);
         }
 
-        // Repasse de cabeçalhos de vídeo
-        ['content-type', 'content-length', 'content-range', 'accept-ranges'].forEach(header => {
-            const val = upstreamRes.headers.get(header);
-            if (val) res.setHeader(header, val);
+        ['content-type', 'content-length', 'content-range', 'accept-ranges'].forEach(h => {
+            const val = upstreamRes.headers.get(h);
+            if (val) res.setHeader(h, val);
         });
 
         if (targetUrl.includes('.ts') || finalUrl.includes('.ts')) {
             res.setHeader('Content-Type', 'video/mp2t');
         }
 
-        // Pipe de dados direto sem carregar o vídeo inteiro na memória
         const arrayBuffer = await upstreamRes.arrayBuffer();
         res.send(Buffer.from(arrayBuffer));
 
@@ -84,10 +84,11 @@ app.get('/proxy', async (req, res) => {
     }
 });
 
-app.get('/', (req, res) => {
-    res.send('Proxy GG Player Ativo.');
+// Qualquer rota que não seja /proxy carrega o index.html
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
-    console.log(`Proxy rodando na porta ${PORT}`);
+    console.log(`GG Player rodando com HTTPS na porta ${PORT}`);
 });
