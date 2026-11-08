@@ -110,7 +110,7 @@
                 <button class="player-btn" id="btn-close-player">← Voltar</button>
                 <button class="player-btn" id="btn-native-fullscreen">⛶ Expandir Tela</button>
             </div>
-            <video id="main-player" playsinline webkit-playsinline controls class="full-video"></video>
+            <video id="main-player" playsinline webkit-playsinline controls preload="auto" class="full-video"></video>
         </div>
     </div>
 
@@ -209,7 +209,11 @@
         }
 
         function showScreen(screenId) {
-            DOM.screens.forEach(s => s.classList.remove('active'));
+            DOM.screens.forEach(s => {
+                if (s.id !== 'player-screen' && s.id !== 'details-screen') {
+                    s.classList.remove('active');
+                }
+            });
             const target = document.getElementById(screenId);
             if (target) target.classList.add('active');
         }
@@ -446,7 +450,8 @@
                     name: s.name || 'Sem Nome',
                     logo: s.stream_icon || s.cover || '',
                     type: type,
-                    stream_type: s.stream_type || ''
+                    stream_type: s.stream_type || '',
+                    container_extension: s.container_extension || 'mp4'
                 }));
 
                 appState.streams[type] = items;
@@ -503,40 +508,37 @@
             if (item.type === 'live') {
                 url = `${dns}/live/${user}/${pass}/${item.id}.m3u8`;
             } else if (item.type === 'movies') {
-                url = `${dns}/movie/${user}/${pass}/${item.id}.${extension || 'mp4'}`;
+                const ext = extension || item.container_extension || 'mp4';
+                url = `${dns}/movie/${user}/${pass}/${item.id}.${ext}`;
             } else if (item.type === 'series') {
-                url = `${dns}/series/${user}/${pass}/${item.id}.${extension || 'mp4'}`;
+                const ext = extension || item.container_extension || 'mp4';
+                url = `${dns}/series/${user}/${pass}/${item.id}.${ext}`;
             }
             return formatMediaUrl(url);
         }
 
-        // MOTOR REPRODUTOR COM TRATAMENTO ANTI-ENGASGO E CONTROLE DE BUFFER
+        // MOTOR REPRODUTOR: DIFERENCIAÇÃO LIVE (HLS) E VOD PROGRESSIVO (HTML5 NATIVO)
         function loadVideo(videoEl, url, isHls, hlsObjKey) {
             if (appState[hlsObjKey]) {
                 appState[hlsObjKey].destroy();
                 appState[hlsObjKey] = null;
             }
 
+            videoEl.pause();
             videoEl.onerror = null;
 
+            // Transmissão Ao Vivo (.m3u8) via HLS.js
             if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
                 const hls = new Hls({
                     enableWorker: true,
-                    lowLatencyMode: false,          // Estabilidade sobre baixa latência extrema
-                    backBufferLength: 0,             // Limpa imediatamente buffer anterior para não voltar no tempo
-                    maxBufferLength: 20,             // 20s de buffer estável
+                    lowLatencyMode: false,
+                    backBufferLength: 0,
+                    maxBufferLength: 20,
                     maxMaxBufferLength: 40,
-                    maxBufferSize: 30 * 1000 * 1000, // 30 MB limite
-                    maxBufferHole: 0.8,              // Pula descontinuidades de até 0.8s sem travar
+                    maxBufferHole: 0.8,
                     highBufferWatchdogPeriod: 2,
                     nudgeOffset: 0.2,
                     nudgeMaxRetry: 10,
-                    manifestLoadingTimeOut: 15000,
-                    manifestLoadingMaxRetry: 4,
-                    levelLoadingTimeOut: 15000,
-                    levelLoadingMaxRetry: 4,
-                    fragLoadingTimeOut: 20000,
-                    fragLoadingMaxRetry: 6,
                     xhrSetup: function(xhr) {
                         xhr.withCredentials = false;
                     }
@@ -552,14 +554,10 @@
                     });
                 });
 
-                // Detecção e recuperação ativa de lacunas e congelamento
                 hls.on(Hls.Events.ERROR, function (event, data) {
-                    if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-                        // Se o buffer engasgar em frame ausente, empurra levemente a agulha
-                        if (videoEl.buffered.length > 0) {
-                            videoEl.currentTime += 0.2;
-                            videoEl.play().catch(() => {});
-                        }
+                    if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR && videoEl.buffered.length > 0) {
+                        videoEl.currentTime += 0.2;
+                        videoEl.play().catch(() => {});
                     }
 
                     if (data.fatal) {
@@ -579,7 +577,9 @@
 
                 appState[hlsObjKey] = hls;
             } else {
+                // VOD (Filmes e Séries): carregamento nativo com HTTP Range / Seek imediato
                 videoEl.src = url;
+                videoEl.load();
                 videoEl.play().catch(() => {
                     videoEl.muted = true;
                     videoEl.play();
@@ -593,7 +593,7 @@
             DOM.btnFullscreen.onclick = () => openFullscreenPlayer(item);
             DOM.miniPlayer.muted = true;
             const url = getStreamUrl(item);
-            loadVideo(DOM.miniPlayer, url, item.type === 'live', 'hlsMini');
+            loadVideo(DOM.miniPlayer, url, true, 'hlsMini');
         }
 
         function stopMiniPlayer() {
@@ -602,6 +602,7 @@
             DOM.miniPlayer.pause();
             DOM.miniPlayer.onerror = null;
             DOM.miniPlayer.removeAttribute('src');
+            DOM.miniPlayer.load();
             if (appState.hlsMini) {
                 appState.hlsMini.destroy();
                 appState.hlsMini = null;
@@ -628,10 +629,12 @@
             stopMiniPlayer();
             addToHistory(item);
             appState.currentPlayback = item;
-            showScreen('player-screen');
+            DOM.playerScreen.classList.add('active');
             DOM.mainPlayer.muted = false;
+
+            const isLive = item.type === 'live';
             const url = getStreamUrl(item, extension);
-            loadVideo(DOM.mainPlayer, url, item.type === 'live', 'hlsMain');
+            loadVideo(DOM.mainPlayer, url, isLive, 'hlsMain');
 
             setTimeout(() => {
                 triggerNativeFullscreen(DOM.playerScreen);
@@ -642,17 +645,30 @@
             triggerNativeFullscreen(DOM.playerScreen);
         });
 
+        // FECHAMENTO LIMPO E RESTAURAÇÃO EXATA DE ESTADO
         DOM.btnClosePlayer.addEventListener('click', () => {
             exitNativeFullscreen();
+
+            // Salva progresso se for VOD
+            if (appState.currentPlayback && (appState.currentPlayback.type === 'movies' || appState.currentPlayback.type === 'series')) {
+                if (DOM.mainPlayer.duration > 0) {
+                    const percent = (DOM.mainPlayer.currentTime / DOM.mainPlayer.duration) * 100;
+                    appState.watchProgress[appState.currentPlayback.id] = percent;
+                    saveProgress();
+                }
+            }
+
             DOM.mainPlayer.pause();
             DOM.mainPlayer.onerror = null;
             DOM.mainPlayer.removeAttribute('src');
+            DOM.mainPlayer.load();
+
             if (appState.hlsMain) {
                 appState.hlsMain.destroy();
                 appState.hlsMain = null;
             }
+
             DOM.playerScreen.classList.remove('active');
-            if (appState.currentTab === 'live') DOM.heroTitle.innerText = "Selecione um canal";
             appState.currentPlayback = null;
         });
 
@@ -681,7 +697,10 @@
                     DOM.detailsYear.innerText = info.info.releasedate || info.info.year || '';
                     DOM.detailsRating.innerText = info.info.rating ? `⭐ ${info.info.rating}` : '';
                     DOM.btnPlayVod.style.display = 'inline-block';
-                    DOM.btnPlayVod.onclick = () => openFullscreenPlayer(item, info.movie_data?.container_extension);
+                    DOM.btnPlayVod.onclick = () => {
+                        DOM.detailsScreen.classList.remove('active');
+                        openFullscreenPlayer(item, info.movie_data?.container_extension);
+                    };
                 }
             } else if (item.type === 'series') {
                 DOM.btnPlayVod.style.display = 'none';
@@ -725,6 +744,7 @@
                     const epName = ep.title || `Episódio ${ep.episode_num}`;
                     epDiv.innerHTML = `<span><b>${ep.episode_num}.</b> ${epName}</span> ▶`;
                     epDiv.onclick = () => {
+                        DOM.detailsScreen.classList.remove('active');
                         const epItem = {
                             id: ep.id,
                             name: `${seriesItem.name} - S${season}E${ep.episode_num}`,
