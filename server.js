@@ -7,10 +7,10 @@ const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
-// Serve os arquivos do site (HTML, CSS, imagens) diretamente pela raiz HTTPS
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve os arquivos da raiz (index.html, css, imagens)
+app.use(express.static(__dirname));
 
-// Rota de proxy para os vídeos e APIs
+// Rota de proxy para converter HTTP em HTTPS nos vídeos e APIs
 app.get('/proxy', async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send('URL ausente.');
@@ -41,6 +41,7 @@ app.get('/proxy', async (req, res) => {
         const finalUrl = upstreamRes.url || targetUrl;
         const contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
 
+        // Processamento HLS (.m3u8)
         if (contentType.includes('mpegurl') || targetUrl.includes('.m3u8') || finalUrl.includes('.m3u8')) {
             const manifest = await upstreamRes.text();
             const baseUrl = new URL(finalUrl);
@@ -84,9 +85,9 @@ app.get('/proxy', async (req, res) => {
     }
 });
 
-// Qualquer rota que não seja /proxy carrega o index.html
+// Entrega o index.html na raiz
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, () => {
