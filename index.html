@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GG Player - Web</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        #debug-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            max-height: 220px;
+            background: rgba(10, 10, 10, 0.98);
+            border-top: 2px solid #ffaa00;
+            color: #00ff66;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.8);
+        }
+        #debug-header {
+            background: #1c1c1c;
+            padding: 5px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            color: #ffaa00;
+            font-weight: bold;
+        }
+        #debug-logs {
+            padding: 8px 12px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .debug-entry { line-height: 1.3; word-break: break-all; }
+        .debug-entry.info { color: #5bc0de; }
+        .debug-entry.warn { color: #f0ad4e; }
+        .debug-entry.error { color: #ff4d4d; font-weight: bold; }
+        .debug-entry.success { color: #00ff66; font-weight: bold; }
+        .debug-btn {
+            background: #2a2a2a;
+            border: 1px solid #555;
+            color: #eee;
+            cursor: pointer;
+            padding: 2px 8px;
+            font-size: 11px;
+            border-radius: 3px;
+            margin-left: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <!-- TELA DE LOGIN -->
+        <div id="login-screen" class="screen active">
+            <div class="login-box">
+                <img src="assets/logo_gg.png" alt="Logo" class="logo-large">
+                <h2 class="login-title">Acesso ao Sistema</h2>
+                <form id="login-form" onsubmit="return false;">
+                    <div class="input-group">
+                        <label>Usuário</label>
+                        <input type="text" id="user-input" required autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label>Senha</label>
+                        <input type="password" id="pass-input" required autocomplete="off">
+                    </div>
+                    
+                    <div id="login-error" class="error-msg"></div>
+                    
+                    <button type="button" class="btn-primary" id="btn-login" onclick="executarLogin()">
+                        <span id="login-text">Entrar</span>
+                        <span id="login-spinner" style="display: none;">Carregando...</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- DASHBOARD PRINCIPAL -->
+        <div id="main-screen" class="screen main-layout">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <img src="assets/logo_gg.png" alt="Logo" class="topbar-logo">
+                    <button class="tab-btn active" data-target="live">Canais</button>
+                    <button class="tab-btn" data-target="movies">Filmes</button>
+                    <button class="tab-btn" data-target="series">Séries</button>
+                    <button class="tab-btn" data-target="favorites">Favoritos</button>
+                    <button class="tab-btn" data-target="history">Histórico</button>
+                </div>
+                <div class="topbar-right">
+                    <div class="status-indicator"></div>
+                    <span id="expire-date">Vencimento: --/--</span>
+                    <button id="btn-logout" class="tab-btn" style="margin-left: 20px;">Sair</button>
+                </div>
+            </header>
+
+            <div class="content-split">
+                <aside class="left-panel" id="categories-panel">
+                    <div class="left-panel-header">
+                        <h3 id="category-title">Categorias</h3>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="search-input" placeholder="Buscar...">
+                    </div>
+                    <ul id="categories-list" class="custom-scrollbar"></ul>
+                </aside>
+
+                <main class="right-panel" id="items-panel">
+                    <div id="live-hero" class="hero-panel">
+                        <div class="hero-player-wrapper">
+                            <video id="mini-player" playsinline autoplay muted></video>
+                        </div>
+                        <div class="hero-bar">
+                            <h2 id="hero-title">Selecione um canal</h2>
+                            <button id="btn-fullscreen" class="btn-primary" style="display: none;">Assistir em Tela Cheia</button>
+                        </div>
+                    </div>
+                    <div id="content-grid" class="content-grid custom-scrollbar"></div>
+                </main>
+            </div>
+        </div>
+
+        <!-- DETALHES VOD -->
+        <div id="details-screen" class="screen overlay-screen">
+            <div class="details-container">
+                <button class="btn-close-overlay" id="btn-close-details">X</button>
+                <div class="details-content">
+                    <img id="details-poster" src="" alt="Poster">
+                    <div class="details-info">
+                        <h2 id="details-title">Título</h2>
+                        <div class="details-meta"><span id="details-year"></span> <span id="details-rating"></span></div>
+                        <p id="details-plot" class="custom-scrollbar"></p>
+                        <div class="action-buttons">
+                            <button id="btn-play-vod" class="btn-primary">Assistir</button>
+                            <button id="btn-fav-vod" class="btn-secondary">Favoritar</button>
+                        </div>
+                        <div id="series-episodes-container" style="display: none;">
+                            <select id="season-select" class="glass-select"></select>
+                            <div id="episodes-list" class="episodes-list custom-scrollbar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PLAYER EM TELA CHEIA -->
+        <div id="player-screen" class="screen overlay-screen bg-black">
+            <button class="btn-close-overlay player-back" id="btn-close-player">Voltar</button>
+            <video id="main-player" playsinline controls class="full-video"></video>
+        </div>
+    </div>
+
+    <!-- PAINEL DE DIAGNÓSTICO -->
+    <aside id="debug-panel">
+        <div id="debug-header">
+            <span>[RENDER PROXY ATIVO]</span>
+            <div>
+                <button class="debug-btn" onclick="document.getElementById('debug-logs').innerHTML=''">Limpar</button>
+                <button class="debug-btn" id="btn-toggle-debug" onclick="toggleDebugLogs()">Minimizar</button>
+            </div>
+        </div>
+        <div id="debug-logs" class="custom-scrollbar"></div>
+    </aside>
+
+    <script>
+        const PROXY_SERVER = "https://gg-stream-proxy.onrender.com";
+
+        function logMsg(level, text) {
+            const container = document.getElementById('debug-logs');
+            if (container) {
+                const el = document.createElement('div');
+                el.className = 'debug-entry ' + level;
+                el.innerText = `[${new Date().toLocaleTimeString('pt-BR')}] [${level.toUpperCase()}] ${text}`;
+                container.appendChild(el);
+                container.scrollTop = container.scrollHeight;
+            }
+            console.log(`[${level.toUpperCase()}] ${text}`);
+        }
+
+        function toggleDebugLogs() {
+            const logs = document.getElementById('debug-logs');
+            const btn = document.getElementById('btn-toggle-debug');
+            if (logs.style.display === 'none') {
+                logs.style.display = 'flex';
+                btn.innerText = 'Minimizar';
+            } else {
+                logs.style.display = 'none';
+                btn.innerText = 'Expandir';
+            }
+        }
+
+        const SERVER_URLS = [
+            "http://playprime.top",
+            "http://livebr.top",
+            "http://titansmarters.com",
+            "http://titanplayprincipal.com",
+            "http://lulu.dns2.site",
+            "http://skylinetop.top",
+            "http://gbox.click",
+            "http://dnsbox.fun",
+            "http://dnscloud.shop:80",
+            "http://dnsgood.site",
+            "http://akdemia.click",
+            "http://crcns.com:80"
+        ];
+
+        const DOM = {
+            screens: document.querySelectorAll('.screen'),
+            userInput: document.getElementById('user-input'),
+            passInput: document.getElementById('pass-input'),
+            loginError: document.getElementById('login-error'),
+            btnLogin: document.getElementById('btn-login'),
+            loginText: document.getElementById('login-text'),
+            loginSpinner: document.getElementById('login-spinner'),
+            navBtns: document.querySelectorAll('.tab-btn[data-target]'),
+            btnLogout: document.getElementById('btn-logout'),
+            expireDate: document.getElementById('expire-date'),
+            searchInput: document.getElementById('search-input'),
+            categoriesPanel: document.getElementById('categories-panel'),
+            categoriesList: document.getElementById('categories-list'),
+            itemsPanel: document.getElementById('items-panel'),
+            contentGrid: document.getElementById('content-grid'),
+            liveHero: document.getElementById('live-hero'),
+            miniPlayer: document.getElementById('mini-player'),
+            heroTitle: document.getElementById('hero-title'),
+            btnFullscreen: document.getElementById('btn-fullscreen'),
+            detailsScreen: document.getElementById('details-screen'),
+            btnCloseDetails: document.getElementById('btn-close-details'),
+            detailsPoster: document.getElementById('details-poster'),
+            detailsTitle: document.getElementById('details-title'),
+            detailsYear: document.getElementById('details-year'),
+            detailsRating: document.getElementById('details-rating'),
+            detailsPlot: document.getElementById('details-plot'),
+            btnPlayVod: document.getElementById('btn-play-vod'),
+            btnFavVod: document.getElementById('btn-fav-vod'),
+            seriesEpisodesContainer: document.getElementById('series-episodes-container'),
+            seasonSelect: document.getElementById('season-select'),
+            episodesList: document.getElementById('episodes-list'),
+            playerScreen: document.getElementById('player-screen'),
+            btnClosePlayer: document.getElementById('btn-close-player'),
+            mainPlayer: document.getElementById('main-player')
+        };
+
+        let appState = {
+            credentials: null,
+            currentTab: 'live',
+            currentCategory: null,
+            isShowingCategories: true,
+            categories: { live: [], movies: [], series: [] },
+            streams: { live: [], movies: [], series: [] },
+            allStreams: { live: null, movies: null, series: null },
+            favorites: JSON.parse(localStorage.getItem('gg_favorites')) || [],
+            history: JSON.parse(localStorage.getItem('gg_history')) || [],
+            watchProgress: JSON.parse(localStorage.getItem('gg_progress')) || {},
+            hlsMini: null,
+            hlsMain: null,
+            currentPlayback: null
+        };
+
+        function formatMediaUrl(url) {
+            if (!url) return '';
+            return `${PROXY_SERVER}/proxy?url=${encodeURIComponent(url)}`;
+        }
+
+        async function fetchApi(action, params = {}) {
+            if (!appState.credentials) return null;
+            const { dns, user, pass } = appState.credentials;
+            let targetUrl = `${dns}/player_api.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`;
+            if (action) targetUrl += `&action=${action}`;
+            for (const key in params) {
+                targetUrl += `&${key}=${encodeURIComponent(params[key])}`;
+            }
+
+            const proxyUrl = formatMediaUrl(targetUrl);
+            try {
+                const res = await fetch(proxyUrl);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (e) {
+                logMsg('error', `Falha na API ${action || 'auth'}: ${e.message}`);
+                return null;
+            }
+        }
+
+        function showScreen(screenId) {
+            DOM.screens.forEach(s => s.classList.remove('active'));
+            const target = document.getElementById(screenId);
+            if (target) target.classList.add('active');
+        }
+
+        function saveFavorites() { localStorage.setItem('gg_favorites', JSON.stringify(appState.favorites)); }
+        function saveHistory() { localStorage.setItem('gg_history', JSON.stringify(appState.history)); }
+        function saveProgress() { localStorage.setItem('gg_progress', JSON.stringify(appState.watchProgress)); }
+        function isFav(id, type) { return appState.favorites.some(f => f.id == id && f.type == type); }
+
+        function toggleFav(item) {
+            const idx = appState.favorites.findIndex(f => f.id == item.id && f.type == item.type);
+            if (idx >= 0) appState.favorites.splice(idx, 1);
+            else appState.favorites.push(item);
+            saveFavorites();
+        }
+
+        function addToHistory(item) {
+            const idx = appState.history.findIndex(h => h.id == item.id && h.type == item.type);
+            if (idx >= 0) appState.history.splice(idx, 1);
+            appState.history.unshift(item);
+            if (appState.history.length > 50) appState.history.pop();
+            saveHistory();
+        }
+
+        async function executarLogin() {
+            const user = DOM.userInput.value.trim();
+            const pass = DOM.passInput.value.trim();
+
+            if (!user || !pass) {
+                DOM.loginError.innerText = 'Preencha o usuário e a senha.';
+                return;
+            }
+
+            DOM.loginText.style.display = 'none';
+            DOM.loginSpinner.style.display = 'inline-block';
+            DOM.btnLogin.disabled = true;
+            DOM.loginError.innerText = 'Conectando ao servidor...';
+
+            logMsg('info', `Iniciando autenticação para "${user}" via Render`);
+
+            let authenticated = false;
+
+            for (let i = 0; i < SERVER_URLS.length; i++) {
+                const cleanDns = SERVER_URLS[i];
+                const targetUrl = `${cleanDns}/player_api.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`;
+                const proxyUrl = formatMediaUrl(targetUrl);
+
+                logMsg('info', `[${i + 1}/${SERVER_URLS.length}] Testando: ${cleanDns}`);
+                const start = performance.now();
+
+                try {
+                    const res = await fetch(proxyUrl);
+                    const dur = Math.round(performance.now() - start);
+
+                    if (!res.ok) {
+                        logMsg('warn', `${cleanDns} -> HTTP ${res.status} (${dur}ms)`);
+                        continue;
+                    }
+
+                    const data = await res.json();
+                    if (data && data.user_info && data.user_info.auth === 1) {
+                        logMsg('success', `DNS AUTENTICADO: ${cleanDns} (${dur}ms)!`);
+                        appState.credentials = { dns: cleanDns, user, pass };
+                        localStorage.setItem('gg_credentials', JSON.stringify(appState.credentials));
+                        DOM.loginError.innerText = '';
+                        authenticated = true;
+                        await initDashboard(data.user_info);
+                        break;
+                    } else {
+                        logMsg('warn', `${cleanDns} -> Credenciais recusadas.`);
+                    }
+                } catch (e) {
+                    logMsg('error', `${cleanDns} -> Falha: ${e.message}`);
+                }
+            }
+
+            if (!authenticated) {
+                logMsg('error', 'Nenhum servidor concluiu a autenticação.');
+                DOM.loginError.innerText = 'Usuário ou senha incorretos.';
+            }
+
+            DOM.loginText.style.display = 'inline-block';
+            DOM.loginSpinner.style.display = 'none';
+            DOM.btnLogin.disabled = false;
+        }
+
+        async function initDashboard(userInfo) {
+            showScreen('main-screen');
+            try {
+                if (userInfo && userInfo.exp_date) {
+                    const date = new Date(userInfo.exp_date * 1000);
+                    DOM.expireDate.innerText = `Vence em: ${date.toLocaleDateString('pt-BR')}`;
+                }
+            } catch(e) {}
+
+            logMsg('info', 'Buscando categorias...');
+            let liveCats = await fetchApi('get_live_categories');
+            appState.categories.live = Array.isArray(liveCats) ? liveCats : [];
+
+            let vodCats = await fetchApi('get_vod_categories');
+            appState.categories.movies = Array.isArray(vodCats) ? vodCats : [];
+
+            let seriesCats = await fetchApi('get_series_categories');
+            appState.categories.series = Array.isArray(seriesCats) ? seriesCats : [];
+
+            logMsg('success', `Categorias: ${appState.categories.live.length} canais, ${appState.categories.movies.length} filmes, ${appState.categories.series.length} séries.`);
+            switchTab('live');
+        }
+
+        DOM.navBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                DOM.navBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                switchTab(btn.dataset.target);
+            });
+        });
+
+        DOM.btnLogout.addEventListener('click', () => {
+            localStorage.removeItem('gg_credentials');
+            window.location.reload();
+        });
+
+        function switchTab(tab) {
+            appState.currentTab = tab;
+            appState.isShowingCategories = true;
+            stopMiniPlayer();
+            DOM.contentGrid.innerHTML = '';
+            DOM.searchInput.value = '';
+
+            if (tab === 'live') {
+                DOM.categoriesPanel.style.display = 'flex';
+                DOM.liveHero.style.display = 'flex';
+                DOM.contentGrid.style.display = 'none';
+                renderCategories(appState.categories.live, 'live');
+            } else if (tab === 'movies' || tab === 'series') {
+                DOM.categoriesPanel.style.display = 'flex';
+                DOM.liveHero.style.display = 'none';
+                DOM.contentGrid.style.display = 'flex';
+                renderCategories(appState.categories[tab], tab);
+            } else if (tab === 'favorites') {
+                DOM.categoriesPanel.style.display = 'none';
+                DOM.liveHero.style.display = 'none';
+                DOM.contentGrid.style.display = 'flex';
+                renderGrid(appState.favorites);
+            } else if (tab === 'history') {
+                DOM.categoriesPanel.style.display = 'none';
+                DOM.liveHero.style.display = 'none';
+                DOM.contentGrid.style.display = 'flex';
+                renderGrid(appState.history);
+            }
+        }
+
+        function renderCategories(cats, type) {
+            DOM.categoriesList.innerHTML = '';
+
+            const allLi = document.createElement('li');
+            allLi.className = 'category-item active';
+            allLi.innerText = 'Todos';
+            allLi.onclick = () => selectCategory(null, type, allLi);
+            DOM.categoriesList.appendChild(allLi);
+
+            const favLi = document.createElement('li');
+            favLi.className = 'category-item';
+            favLi.innerHTML = '<span style="color:var(--gold);">&#9733; Favoritos</span>';
+            favLi.onclick = () => selectCategory('FAVORITES', type, favLi);
+            DOM.categoriesList.appendChild(favLi);
+
+            cats.forEach(c => {
+                const li = document.createElement('li');
+                li.className = 'category-item';
+                li.innerText = c.category_name;
+                li.onclick = () => selectCategory(c.category_id, type, li);
+                DOM.categoriesList.appendChild(li);
+            });
+
+            if (type !== 'live') selectCategory(null, type, allLi);
+        }
+
+        function renderChannelsList(items) {
+            DOM.categoriesList.innerHTML = '';
+
+            const backLi = document.createElement('li');
+            backLi.className = 'category-item';
+            backLi.innerHTML = '<strong style="color:var(--gold);">&larr; Voltar às Categorias</strong>';
+            backLi.onclick = () => {
+                appState.isShowingCategories = true;
+                renderCategories(appState.categories.live, 'live');
+            };
+            DOM.categoriesList.appendChild(backLi);
+
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'category-item';
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                li.style.alignItems = 'center';
+
+                const isFavorite = isFav(item.id, item.type);
+                const favIcon = isFavorite ? '<span class="fav-icon" style="color:var(--gold);font-size:20px;cursor:pointer;">&#9733;</span>' : '<span class="fav-icon" style="color:gray;font-size:20px;cursor:pointer;">&#9734;</span>';
+
+                li.innerHTML = `<span style="display:inline-block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:85%; pointer-events:none;">${item.name}</span> ${favIcon}`;
+
+                li.onclick = (e) => {
+                    if (e.target.classList.contains('fav-icon')) {
+                        e.stopPropagation();
+                        toggleFav(item);
+                        renderChannelsList(appState.streams.live);
+                        return;
+                    }
+                    document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
+                    li.classList.add('active');
+                    playMiniPlayer(item);
+                };
+                DOM.categoriesList.appendChild(li);
+            });
+        }
+
+        async function selectCategory(catId, type, liElement) {
+            if (liElement) {
+                document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
+                liElement.classList.add('active');
+            }
+
+            appState.currentCategory = catId;
+
+            if (catId === 'FAVORITES') {
+                const favs = appState.favorites.filter(f => f.type === type);
+                appState.streams[type] = favs;
+                if (type === 'live') {
+                    appState.isShowingCategories = false;
+                    renderChannelsList(favs);
+                } else {
+                    renderGrid(favs);
+                }
+                return;
+            }
+
+            if (type !== 'live') DOM.contentGrid.innerHTML = '<div style="width:100%;text-align:center;padding:20px;">Carregando itens...</div>';
+            else DOM.categoriesList.innerHTML = '<li class="category-item">Carregando itens...</li>';
+
+            let action = '';
+            if (type === 'live') action = 'get_live_streams';
+            else if (type === 'movies') action = 'get_vod_streams';
+            else if (type === 'series') action = 'get_series';
+
+            try {
+                let streams = await fetchApi(action, catId ? { category_id: catId } : {});
+                if (!Array.isArray(streams)) streams = [];
+
+                let items = streams.map(s => ({
+                    id: s.stream_id || s.series_id,
+                    name: s.name || 'Sem Nome',
+                    logo: s.stream_icon || s.cover || '',
+                    type: type,
+                    stream_type: s.stream_type || ''
+                }));
+
+                appState.streams[type] = items;
+                logMsg('info', `Categoria carregou ${items.length} canais.`);
+
+                if (type === 'live') {
+                    appState.isShowingCategories = false;
+                    renderChannelsList(items);
+                } else {
+                    renderGrid(items);
+                }
+            } catch (err) {
+                logMsg('error', `Falha ao carregar itens da categoria ${catId}: ${err.message}`);
+                if (type !== 'live') DOM.contentGrid.innerHTML = '<div style="width:100%;text-align:center;padding:20px;color:red;">Erro ao carregar lista.</div>';
+                else DOM.categoriesList.innerHTML = '<li class="category-item" style="color:red;">Erro ao carregar lista.</li>';
+            }
+        }
+
+        function renderGrid(items) {
+            DOM.contentGrid.innerHTML = '';
+            items.forEach(item => DOM.contentGrid.appendChild(createCard(item)));
+        }
+
+        function createCard(item) {
+            const div = document.createElement('div');
+            div.className = 'stream-item';
+
+            let progressTag = '';
+            if ((item.type === 'movies' || item.type === 'series') && appState.watchProgress[item.id]) {
+                const p = appState.watchProgress[item.id];
+                if (p > 90) progressTag = '<div class="tag-overlay" style="background:#4CAF50;">Assistido</div>';
+                else if (p > 0) progressTag = `<div class="tag-overlay">Assistindo (${Math.floor(p)}%)</div>`;
+            }
+
+            const displayLogo = formatMediaUrl(item.logo);
+
+            div.innerHTML = `
+                <div class="stream-item-inner">
+                    <img src="${displayLogo}" onerror="this.style.opacity=0;">
+                    ${progressTag}
+                </div>
+                <div class="stream-title">${item.name}</div>
+            `;
+
+            div.addEventListener('click', () => {
+                if (item.type === 'live') openFullscreenPlayer(item);
+                else openDetails(item);
+            });
+
+            return div;
+        }
+
+        function getStreamUrl(item, extension = '') {
+            const { dns, user, pass } = appState.credentials;
+            let url = '';
+            if (item.type === 'live') {
+                url = `${dns}/live/${user}/${pass}/${item.id}.m3u8`;
+            } else if (item.type === 'movies') {
+                url = `${dns}/movie/${user}/${pass}/${item.id}.${extension || 'mp4'}`;
+            } else if (item.type === 'series') {
+                url = `${dns}/series/${user}/${pass}/${item.id}.${extension || 'mp4'}`;
+            }
+            return formatMediaUrl(url);
+        }
+
+        function loadVideo(videoEl, url, isHls, hlsObjKey) {
+            if (appState[hlsObjKey]) {
+                appState[hlsObjKey].destroy();
+                appState[hlsObjKey] = null;
+            }
+
+            videoEl.onerror = null;
+            videoEl.onplaying = () => {
+                logMsg('success', 'Vídeo em reprodução com sucesso!');
+            };
+
+            logMsg('info', `Carregando stream: ${url}`);
+
+            if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                const hls = new Hls({
+                    maxBufferLength: 30,
+                    enableWorker: true,
+                    xhrSetup: function(xhr) {
+                        xhr.withCredentials = false;
+                    }
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(videoEl);
+
+                hls.on(Hls.Events.MANIFEST_LOADED, function (event, data) {
+                    logMsg('success', `Manifesto recebido com ${data.levels ? data.levels.length : 1} nível(is).`);
+                });
+
+                hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                    logMsg('success', 'Manifesto validado! Dando play...');
+                    videoEl.play().catch(e => {
+                        logMsg('warn', 'Autoplay bloqueado. Mutando para iniciar...');
+                        videoEl.muted = true;
+                        videoEl.play();
+                    });
+                });
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    const statusCode = data.response ? data.response.code : 'Sem HTTP';
+                    logMsg('error', `Falha HLS: ${data.details} (${statusCode})`);
+
+                    if (data.fatal) {
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                logMsg('warn', 'Erro de rede HLS. Tentando recuperar...');
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                logMsg('warn', 'Erro de mídia HLS. Tentando recuperar...');
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                hls.destroy();
+                                break;
+                        }
+                    }
+                });
+
+                appState[hlsObjKey] = hls;
+            } else {
+                videoEl.src = url;
+                videoEl.play().catch(() => {
+                    videoEl.muted = true;
+                    videoEl.play();
+                });
+            }
+        }
+
+        function playMiniPlayer(item) {
+            DOM.heroTitle.innerText = item.name;
+            DOM.btnFullscreen.style.display = 'inline-block';
+            DOM.btnFullscreen.onclick = () => openFullscreenPlayer(item);
+            DOM.miniPlayer.muted = true;
+            const url = getStreamUrl(item);
+            loadVideo(DOM.miniPlayer, url, item.type === 'live', 'hlsMini');
+        }
+
+        function stopMiniPlayer() {
+            DOM.heroTitle.innerText = "Selecione um canal";
+            DOM.btnFullscreen.style.display = 'none';
+            DOM.miniPlayer.pause();
+            DOM.miniPlayer.onerror = null;
+            DOM.miniPlayer.removeAttribute('src');
+            if (appState.hlsMini) {
+                appState.hlsMini.destroy();
+                appState.hlsMini = null;
+            }
+        }
+
+        function openFullscreenPlayer(item, extension = '') {
+            stopMiniPlayer();
+            addToHistory(item);
+            appState.currentPlayback = item;
+            showScreen('player-screen');
+            DOM.mainPlayer.muted = false;
+            const url = getStreamUrl(item, extension);
+            loadVideo(DOM.mainPlayer, url, item.type === 'live', 'hlsMain');
+        }
+
+        DOM.btnClosePlayer.addEventListener('click', () => {
+            DOM.mainPlayer.pause();
+            DOM.mainPlayer.onerror = null;
+            DOM.mainPlayer.removeAttribute('src');
+            if (appState.hlsMain) {
+                appState.hlsMain.destroy();
+                appState.hlsMain = null;
+            }
+            DOM.playerScreen.classList.remove('active');
+            if (appState.currentTab === 'live') DOM.heroTitle.innerText = "Selecione um canal";
+            appState.currentPlayback = null;
+        });
+
+        async function openDetails(item) {
+            DOM.detailsPoster.style.opacity = 1;
+            DOM.detailsPoster.src = formatMediaUrl(item.logo);
+            DOM.detailsPoster.onerror = function() { this.style.opacity = 0; };
+            DOM.detailsTitle.innerText = item.name;
+            DOM.detailsPlot.innerText = "Carregando detalhes...";
+            DOM.detailsYear.innerText = "";
+            DOM.detailsRating.innerText = "";
+            DOM.seriesEpisodesContainer.style.display = 'none';
+
+            DOM.btnFavVod.onclick = () => {
+                toggleFav(item);
+                updateFavBtn(item);
+            };
+            updateFavBtn(item);
+
+            DOM.detailsScreen.classList.add('active');
+
+            if (item.type === 'movies') {
+                const info = await fetchApi('get_vod_info', { vod_id: item.id });
+                if (info && info.info) {
+                    DOM.detailsPlot.innerText = info.info.plot || 'Sem sinopse.';
+                    DOM.detailsYear.innerText = info.info.releasedate || info.info.year || '';
+                    DOM.detailsRating.innerText = info.info.rating ? `⭐ ${info.info.rating}` : '';
+                    DOM.btnPlayVod.style.display = 'inline-block';
+                    DOM.btnPlayVod.onclick = () => openFullscreenPlayer(item, info.movie_data?.container_extension);
+                }
+            } else if (item.type === 'series') {
+                DOM.btnPlayVod.style.display = 'none';
+                const info = await fetchApi('get_series_info', { series_id: item.id });
+                if (info && info.info) {
+                    DOM.detailsPlot.innerText = info.info.plot || 'Sem sinopse.';
+                    DOM.detailsYear.innerText = info.info.releaseDate || '';
+                    DOM.detailsRating.innerText = info.info.rating ? `⭐ ${info.info.rating}` : '';
+                    if (info.episodes) {
+                        DOM.seriesEpisodesContainer.style.display = 'block';
+                        renderSeriesEpisodes(info.episodes, item);
+                    }
+                }
+            }
+        }
+
+        function updateFavBtn(item) {
+            const isF = isFav(item.id, item.type);
+            DOM.btnFavVod.innerHTML = isF ? '&#9733; Favoritado' : '&#9734; Favoritar';
+            DOM.btnFavVod.style.color = isF ? 'var(--gold)' : 'white';
+        }
+
+        function renderSeriesEpisodes(episodesData, seriesItem) {
+            DOM.seasonSelect.innerHTML = '';
+            const seasons = Object.keys(episodesData);
+            seasons.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.innerText = `Temporada ${s}`;
+                DOM.seasonSelect.appendChild(opt);
+            });
+
+            DOM.seasonSelect.onchange = () => {
+                const season = DOM.seasonSelect.value;
+                const eps = episodesData[season] || [];
+                DOM.episodesList.innerHTML = '';
+
+                eps.forEach(ep => {
+                    const epDiv = document.createElement('div');
+                    epDiv.className = 'episode-item';
+                    const epName = ep.title || `Episódio ${ep.episode_num}`;
+                    epDiv.innerHTML = `<span><b>${ep.episode_num}.</b> ${epName}</span> &#9654;`;
+                    epDiv.onclick = () => {
+                        const epItem = {
+                            id: ep.id,
+                            name: `${seriesItem.name} - S${season}E${ep.episode_num}`,
+                            logo: seriesItem.logo,
+                            type: 'series'
+                        };
+                        openFullscreenPlayer(epItem, ep.container_extension);
+                    };
+                    DOM.episodesList.appendChild(epDiv);
+                });
+            };
+
+            if (seasons.length > 0) DOM.seasonSelect.onchange();
+        }
+
+        DOM.btnCloseDetails.addEventListener('click', () => {
+            DOM.detailsScreen.classList.remove('active');
+        });
+
+        logMsg('info', `Página iniciada em: ${window.location.protocol}//${window.location.host}`);
+        const savedCreds = localStorage.getItem('gg_credentials');
+        if (savedCreds) {
+            try {
+                appState.credentials = JSON.parse(savedCreds);
+                DOM.userInput.value = appState.credentials.user;
+                DOM.passInput.value = appState.credentials.pass;
+                logMsg('info', 'Credenciais salvas recuperadas. Conectando automaticamente...');
+                executarLogin();
+            } catch(e) {
+                showScreen('login-screen');
+            }
+        } else {
+            showScreen('login-screen');
+        }
+    </script>
+</body>
+</html>
