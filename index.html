@@ -5,7 +5,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GG Player - Web</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
@@ -50,9 +50,8 @@
                     <button class="tab-btn" data-target="history">Histórico</button>
                 </div>
                 <div class="topbar-right">
-                    <div class="status-indicator"></div>
                     <span id="expire-date">Vencimento: --/--</span>
-                    <button id="btn-logout" class="tab-btn" style="margin-left: 20px;">Sair</button>
+                    <button id="btn-logout" class="tab-btn" style="margin-left: 12px;">Sair</button>
                 </div>
             </header>
 
@@ -74,7 +73,7 @@
                         </div>
                         <div class="hero-bar">
                             <h2 id="hero-title">Selecione um canal</h2>
-                            <button id="btn-fullscreen" class="btn-primary" style="display: none;">Assistir em Tela Cheia</button>
+                            <button id="btn-fullscreen" class="btn-primary" style="display: none;">⛶ Tela Cheia</button>
                         </div>
                     </div>
                     <div id="content-grid" class="content-grid custom-scrollbar"></div>
@@ -85,7 +84,7 @@
         <!-- DETALHES VOD -->
         <div id="details-screen" class="screen overlay-screen">
             <div class="details-container">
-                <button class="btn-close-overlay" id="btn-close-details">X</button>
+                <button class="btn-close-overlay" id="btn-close-details">✕</button>
                 <div class="details-content">
                     <img id="details-poster" src="" alt="Poster">
                     <div class="details-info">
@@ -105,10 +104,13 @@
             </div>
         </div>
 
-        <!-- PLAYER EM TELA CHEIA -->
+        <!-- PLAYER EM TELA CHEIA NATIVO -->
         <div id="player-screen" class="screen overlay-screen bg-black">
-            <button class="btn-close-overlay player-back" id="btn-close-player">Voltar</button>
-            <video id="main-player" playsinline controls class="full-video"></video>
+            <div class="player-controls-floating">
+                <button class="player-btn" id="btn-close-player">← Voltar</button>
+                <button class="player-btn" id="btn-native-fullscreen">⛶ Expandir Tela</button>
+            </div>
+            <video id="main-player" playsinline webkit-playsinline controls class="full-video"></video>
         </div>
     </div>
 
@@ -162,6 +164,7 @@
             episodesList: document.getElementById('episodes-list'),
             playerScreen: document.getElementById('player-screen'),
             btnClosePlayer: document.getElementById('btn-close-player'),
+            btnNativeFullscreen: document.getElementById('btn-native-fullscreen'),
             mainPlayer: document.getElementById('main-player')
         };
 
@@ -326,17 +329,17 @@
             } else if (tab === 'movies' || tab === 'series') {
                 DOM.categoriesPanel.style.display = 'flex';
                 DOM.liveHero.style.display = 'none';
-                DOM.contentGrid.style.display = 'flex';
+                DOM.contentGrid.style.display = 'grid';
                 renderCategories(appState.categories[tab], tab);
             } else if (tab === 'favorites') {
                 DOM.categoriesPanel.style.display = 'none';
                 DOM.liveHero.style.display = 'none';
-                DOM.contentGrid.style.display = 'flex';
+                DOM.contentGrid.style.display = 'grid';
                 renderGrid(appState.favorites);
             } else if (tab === 'history') {
                 DOM.categoriesPanel.style.display = 'none';
                 DOM.liveHero.style.display = 'none';
-                DOM.contentGrid.style.display = 'flex';
+                DOM.contentGrid.style.display = 'grid';
                 renderGrid(appState.history);
             }
         }
@@ -562,7 +565,7 @@
 
         function playMiniPlayer(item) {
             DOM.heroTitle.innerText = item.name;
-            DOM.btnFullscreen.style.display = 'inline-block';
+            DOM.btnFullscreen.style.display = 'inline-flex';
             DOM.btnFullscreen.onclick = () => openFullscreenPlayer(item);
             DOM.miniPlayer.muted = true;
             const url = getStreamUrl(item);
@@ -581,6 +584,24 @@
             }
         }
 
+        // DISPARA TELA CHEIA NATIVA REAL (Esconde barras de navegação do dispositivo)
+        function triggerNativeFullscreen(element) {
+            const req = element.requestFullscreen || element.webkitRequestFullscreen || element.mozRequestFullScreen || element.msRequestFullscreen;
+            if (req) {
+                req.call(element).catch(() => {});
+            } else if (DOM.mainPlayer.webkitEnterFullscreen) {
+                // Suporte específico para iOS Safari Mobile
+                DOM.mainPlayer.webkitEnterFullscreen();
+            }
+        }
+
+        function exitNativeFullscreen() {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {
+                exit.call(document).catch(() => {});
+            }
+        }
+
         function openFullscreenPlayer(item, extension = '') {
             stopMiniPlayer();
             addToHistory(item);
@@ -589,9 +610,19 @@
             DOM.mainPlayer.muted = false;
             const url = getStreamUrl(item, extension);
             loadVideo(DOM.mainPlayer, url, item.type === 'live', 'hlsMain');
+
+            // Dispara tela cheia nativa do aparelho para esconder a barra de endereço
+            setTimeout(() => {
+                triggerNativeFullscreen(DOM.playerScreen);
+            }, 100);
         }
 
+        DOM.btnNativeFullscreen.addEventListener('click', () => {
+            triggerNativeFullscreen(DOM.playerScreen);
+        });
+
         DOM.btnClosePlayer.addEventListener('click', () => {
+            exitNativeFullscreen();
             DOM.mainPlayer.pause();
             DOM.mainPlayer.onerror = null;
             DOM.mainPlayer.removeAttribute('src');
@@ -671,7 +702,7 @@
                     const epDiv = document.createElement('div');
                     epDiv.className = 'episode-item';
                     const epName = ep.title || `Episódio ${ep.episode_num}`;
-                    epDiv.innerHTML = `<span><b>${ep.episode_num}.</b> ${epName}</span> &#9654;`;
+                    epDiv.innerHTML = `<span><b>${ep.episode_num}.</b> ${epName}</span> ▶`;
                     epDiv.onclick = () => {
                         const epItem = {
                             id: ep.id,
