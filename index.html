@@ -10,57 +10,6 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <style>
-        #debug-panel {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            max-height: 220px;
-            background: rgba(10, 10, 10, 0.98);
-            border-top: 2px solid #ffaa00;
-            color: #00ff66;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 11px;
-            z-index: 999999;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.8);
-        }
-        #debug-header {
-            background: #1c1c1c;
-            padding: 5px 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #333;
-            color: #ffaa00;
-            font-weight: bold;
-        }
-        #debug-logs {
-            padding: 8px 12px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .debug-entry { line-height: 1.3; word-break: break-all; }
-        .debug-entry.info { color: #5bc0de; }
-        .debug-entry.warn { color: #f0ad4e; }
-        .debug-entry.error { color: #ff4d4d; font-weight: bold; }
-        .debug-entry.success { color: #00ff66; font-weight: bold; }
-        .debug-btn {
-            background: #2a2a2a;
-            border: 1px solid #555;
-            color: #eee;
-            cursor: pointer;
-            padding: 2px 8px;
-            font-size: 11px;
-            border-radius: 3px;
-            margin-left: 6px;
-        }
-    </style>
 </head>
 <body>
     <div id="app-container">
@@ -163,43 +112,7 @@
         </div>
     </div>
 
-    <!-- PAINEL DE DIAGNÓSTICO -->
-    <aside id="debug-panel">
-        <div id="debug-header">
-            <span>[GG PLAYER HTTPS - RENDER]</span>
-            <div>
-                <button class="debug-btn" onclick="document.getElementById('debug-logs').innerHTML=''">Limpar</button>
-                <button class="debug-btn" id="btn-toggle-debug" onclick="toggleDebugLogs()">Minimizar</button>
-            </div>
-        </div>
-        <div id="debug-logs" class="custom-scrollbar"></div>
-    </aside>
-
     <script>
-        function logMsg(level, text) {
-            const container = document.getElementById('debug-logs');
-            if (container) {
-                const el = document.createElement('div');
-                el.className = 'debug-entry ' + level;
-                el.innerText = `[${new Date().toLocaleTimeString('pt-BR')}] [${level.toUpperCase()}] ${text}`;
-                container.appendChild(el);
-                container.scrollTop = container.scrollHeight;
-            }
-            console.log(`[${level.toUpperCase()}] ${text}`);
-        }
-
-        function toggleDebugLogs() {
-            const logs = document.getElementById('debug-logs');
-            const btn = document.getElementById('btn-toggle-debug');
-            if (logs.style.display === 'none') {
-                logs.style.display = 'flex';
-                btn.innerText = 'Minimizar';
-            } else {
-                logs.style.display = 'none';
-                btn.innerText = 'Expandir';
-            }
-        }
-
         const SERVER_URLS = [
             "http://playprime.top",
             "http://livebr.top",
@@ -268,7 +181,6 @@
             currentPlayback: null
         };
 
-        // Rota relativa direta no mesmo servidor Render
         function formatMediaUrl(url) {
             if (!url) return '';
             return `/proxy?url=${encodeURIComponent(url)}`;
@@ -289,7 +201,6 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return await res.json();
             } catch (e) {
-                logMsg('error', `Falha na API ${action || 'auth'}: ${e.message}`);
                 return null;
             }
         }
@@ -334,8 +245,6 @@
             DOM.btnLogin.disabled = true;
             DOM.loginError.innerText = 'Conectando ao servidor...';
 
-            logMsg('info', `Iniciando autenticação para "${user}"`);
-
             let authenticated = false;
 
             for (let i = 0; i < SERVER_URLS.length; i++) {
@@ -343,37 +252,23 @@
                 const targetUrl = `${cleanDns}/player_api.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`;
                 const proxyUrl = formatMediaUrl(targetUrl);
 
-                logMsg('info', `[${i + 1}/${SERVER_URLS.length}] Testando: ${cleanDns}`);
-                const start = performance.now();
-
                 try {
                     const res = await fetch(proxyUrl);
-                    const dur = Math.round(performance.now() - start);
-
-                    if (!res.ok) {
-                        logMsg('warn', `${cleanDns} -> HTTP ${res.status} (${dur}ms)`);
-                        continue;
-                    }
+                    if (!res.ok) continue;
 
                     const data = await res.json();
                     if (data && data.user_info && data.user_info.auth === 1) {
-                        logMsg('success', `DNS AUTENTICADO: ${cleanDns} (${dur}ms)!`);
                         appState.credentials = { dns: cleanDns, user, pass };
                         localStorage.setItem('gg_credentials', JSON.stringify(appState.credentials));
                         DOM.loginError.innerText = '';
                         authenticated = true;
                         await initDashboard(data.user_info);
                         break;
-                    } else {
-                        logMsg('warn', `${cleanDns} -> Credenciais recusadas.`);
                     }
-                } catch (e) {
-                    logMsg('error', `${cleanDns} -> Falha: ${e.message}`);
-                }
+                } catch (e) {}
             }
 
             if (!authenticated) {
-                logMsg('error', 'Nenhum servidor concluiu a autenticação.');
                 DOM.loginError.innerText = 'Usuário ou senha incorretos.';
             }
 
@@ -391,7 +286,6 @@
                 }
             } catch(e) {}
 
-            logMsg('info', 'Buscando categorias...');
             let liveCats = await fetchApi('get_live_categories');
             appState.categories.live = Array.isArray(liveCats) ? liveCats : [];
 
@@ -401,7 +295,6 @@
             let seriesCats = await fetchApi('get_series_categories');
             appState.categories.series = Array.isArray(seriesCats) ? seriesCats : [];
 
-            logMsg('success', `Categorias: ${appState.categories.live.length} canais, ${appState.categories.movies.length} filmes, ${appState.categories.series.length} séries.`);
             switchTab('live');
         }
 
@@ -554,7 +447,6 @@
                 }));
 
                 appState.streams[type] = items;
-                logMsg('info', `Categoria carregou ${items.length} canais.`);
 
                 if (type === 'live') {
                     appState.isShowingCategories = false;
@@ -563,7 +455,6 @@
                     renderGrid(items);
                 }
             } catch (err) {
-                logMsg('error', `Falha ao carregar itens da categoria ${catId}: ${err.message}`);
                 if (type !== 'live') DOM.contentGrid.innerHTML = '<div style="width:100%;text-align:center;padding:20px;color:red;">Erro ao carregar lista.</div>';
                 else DOM.categoriesList.innerHTML = '<li class="category-item" style="color:red;">Erro ao carregar lista.</li>';
             }
@@ -623,11 +514,6 @@
             }
 
             videoEl.onerror = null;
-            videoEl.onplaying = () => {
-                logMsg('success', 'Vídeo em reprodução com sucesso!');
-            };
-
-            logMsg('info', `Carregando stream: ${url}`);
 
             if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
                 const hls = new Hls({
@@ -641,31 +527,20 @@
                 hls.loadSource(url);
                 hls.attachMedia(videoEl);
 
-                hls.on(Hls.Events.MANIFEST_LOADED, function (event, data) {
-                    logMsg('success', `Manifesto recebido com ${data.levels ? data.levels.length : 1} nível(is).`);
-                });
-
                 hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                    logMsg('success', 'Manifesto validado! Dando play...');
-                    videoEl.play().catch(e => {
-                        logMsg('warn', 'Autoplay bloqueado. Mutando para iniciar...');
+                    videoEl.play().catch(() => {
                         videoEl.muted = true;
                         videoEl.play();
                     });
                 });
 
                 hls.on(Hls.Events.ERROR, function (event, data) {
-                    const statusCode = data.response ? data.response.code : 'Sem HTTP';
-                    logMsg('error', `Falha HLS: ${data.details} (${statusCode})`);
-
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                logMsg('warn', 'Erro de rede HLS. Tentando recuperar...');
                                 hls.startLoad();
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                logMsg('warn', 'Erro de mídia HLS. Tentando recuperar...');
                                 hls.recoverMediaError();
                                 break;
                             default:
@@ -817,14 +692,12 @@
             DOM.detailsScreen.classList.remove('active');
         });
 
-        logMsg('info', `Página iniciada em: ${window.location.protocol}//${window.location.host}`);
         const savedCreds = localStorage.getItem('gg_credentials');
         if (savedCreds) {
             try {
                 appState.credentials = JSON.parse(savedCreds);
                 DOM.userInput.value = appState.credentials.user;
                 DOM.passInput.value = appState.credentials.pass;
-                logMsg('info', 'Credenciais salvas recuperadas. Conectando automaticamente...');
                 executarLogin();
             } catch(e) {
                 showScreen('login-screen');
