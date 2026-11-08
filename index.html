@@ -166,7 +166,7 @@
     <!-- PAINEL DE DIAGNÓSTICO -->
     <aside id="debug-panel">
         <div id="debug-header">
-            <span>[RENDER PROXY ATIVO]</span>
+            <span>[GG PLAYER HTTPS - RENDER]</span>
             <div>
                 <button class="debug-btn" onclick="document.getElementById('debug-logs').innerHTML=''">Limpar</button>
                 <button class="debug-btn" id="btn-toggle-debug" onclick="toggleDebugLogs()">Minimizar</button>
@@ -176,8 +176,6 @@
     </aside>
 
     <script>
-        const PROXY_SERVER = "https://gg-stream-proxy.onrender.com";
-
         function logMsg(level, text) {
             const container = document.getElementById('debug-logs');
             if (container) {
@@ -270,9 +268,10 @@
             currentPlayback: null
         };
 
+        // Rota relativa direta no mesmo servidor Render
         function formatMediaUrl(url) {
             if (!url) return '';
-            return `${PROXY_SERVER}/proxy?url=${encodeURIComponent(url)}`;
+            return `/proxy?url=${encodeURIComponent(url)}`;
         }
 
         async function fetchApi(action, params = {}) {
@@ -335,7 +334,7 @@
             DOM.btnLogin.disabled = true;
             DOM.loginError.innerText = 'Conectando ao servidor...';
 
-            logMsg('info', `Iniciando autenticação para "${user}" via Render`);
+            logMsg('info', `Iniciando autenticação para "${user}"`);
 
             let authenticated = false;
 
